@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="windows-1251"?><w3s.response><reqn>36</reqn><operations cnt="1" cntA="0">
+<operation id="1757795906" ts="1757795906"><pursesrc>V088593463806</pursesrc><pursedest>V203278895388</pursedest><amount>4833.06</amount><comiss>500.00</comiss><opertype>0</opertype><wminvid>0</wminvid><orderid>0</orderid><tranid>0</tranid><period>0</period><desc>Reset purse</desc><datecrt>20200825 17:47:25</datecrt><dateupd>20200825 17:47:25</dateupd><corrwm>956924011991</corrwm><rest>0.00</rest><allfee>500.00</allfee></operation>
+</operations><retval>0</retval><retdesc></retdesc><ser>Srv10</ser></w3s.response>
