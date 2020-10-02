@@ -8,18 +8,18 @@ const jonsonParser = new xml2js.Parser({ explicitArray: false });
 const TransactionHistoryRequest = require("../model/TransactionHistoryRequest");
 const { performance } = require("perf_hooks");
 
-const getSignature = async (reqn, purse) => {
+const getSignature = async (reqn, sign_content) => {
   const sign = await axios.get("http://localhost/", {
-    params: { plainText: `${purse}${reqn}` },
+    params: { plainText: `${sign_content}${reqn}` },
   });
   return sign.data;
 };
-const getWMParamXML = (option_field, option_value, reqn, sign) => {
+const getWMParamXML = (option_field, option_value, reqn, sign, wmid) => {
   //DECLARE OBJECT PARAM TO SEND TO X_3
   const reqPayload = {
     "w3s.request": {
       reqn,
-      wmid: process.env.WMID,
+      wmid,
       sign,
       [option_field]: option_value,
     },
@@ -27,7 +27,7 @@ const getWMParamXML = (option_field, option_value, reqn, sign) => {
   // CONVERT OBJECT TO XML
   const builder = new xml2js.Builder();
   const xml = builder.buildObject(reqPayload);
-
+  console.log(xml);
   return xml;
 };
 const parseStringASync = (xml) => {
@@ -98,20 +98,27 @@ const parseResponseToJson = async (response, option) => {
   return wm_response_json;
 };
 
-const handleRequest = async (
-  option_request,
+const handleRequest = async ({
+  option_request_param,
   option_request_value,
   url,
   option_response,
-  purse = process.env.PURSE
-) => {
+  wmid,
+  sign_content = process.env.PURSE,
+}) => {
   // get max reqn +1
   const reqn = await getReqn();
-  // sign purse+ren
-  const sign = await getSignature(reqn, purse);
+  // sign sign_content+ren
+  const sign = await getSignature(reqn, sign_content);
 
   //DECLARE XML PARAM TO SEND TO X_?
-  const xml = getWMParamXML(option_request, option_request_value, reqn, sign);
+  const xml = getWMParamXML(
+    option_request_param,
+    option_request_value,
+    reqn,
+    sign,
+    wmid
+  );
 
   //REQUEST TO X_? AND GET TIME TAKEN
   const { response, duration } = await requestToWMandGetTimePerformance(
@@ -147,65 +154,92 @@ const wm_route = () => {
     });
   };
   //---------------------X3-----------------//
+
+  // option_request_param,
+  //option_request_value,
+  // url,
+  //option_response,
+  //wmid,
+  //sign_content = process.env.PURSE,
   config_route(
     "post",
     `${wmPath}/x3`,
     async (req, h) => {
-      let { startDate, endDate } = req.payload;
-      startDate = moment(startDate).format("YYYYMMDD hh:mm:ss");
-      endDate = moment(endDate).format("YYYYMMDD hh:mm:ss");
+      try {
+        let {
+          startDate,
+          endDate,
+          wmid,
+          tranid,
+          wminvid,
+          orderid,
+        } = req.payload;
+        startDate = moment(startDate).format("YYYYMMDD hh:mm:ss");
+        endDate = moment(endDate).format("YYYYMMDD hh:mm:ss");
 
-      // try {
-      const response = await handleRequest(
-        "getoperations",
-        {
-          purse: process.env.PURSE,
-          datestart: startDate,
-          datefinish: endDate,
-        },
-        process.env.X_3,
-        "operation"
-      );
+        const response = await handleRequest({
+          option_request_param: "getoperations",
+          option_request_value: {
+            purse: process.env.PURSE,
+            datestart: startDate,
+            datefinish: endDate,
+            tranid,
+            wminvid,
+            orderid,
+          },
+          url: process.env.X_3,
+          option_response: "operation",
+          wmid,
+        });
+        return response;
+      } catch (error) {
+        return h.response(error.message).code(500);
+      }
 
       // RETURN ARRAY CONTAINING OPERATION
-      return response;
-      // }
-      // catch (error) {
-      //   console.log(error);
-      //   return error.message;
-      // }
     },
     {
       description: "X3.Receiving Transaction History",
       notes: "Receiving Transaction History. Checking Transaction Status.",
       validate: {
         payload: Joi.object({
+          wmid: Joi.string().required(),
           startDate: Joi.date().required(),
           endDate: Joi.date().required(),
+          tranid: Joi.number(),
+          wminvid: Joi.number().positive(),
+          orderid: Joi.number(),
         }),
+        failAction: (req, h, err) => {
+          return h.response(err.message).code(400).takeover();
+        },
       },
     }
   );
 
   //---------------------X4-----------------//
+
   config_route(
     "post",
     `${wmPath}/x4`,
     async (req, h) => {
       try {
-        let { startDate, endDate } = req.payload;
+        let { wminvid, orderid, startDate, endDate, wmid } = req.payload;
         startDate = moment(startDate).format("YYYYMMDD hh:mm:ss");
         endDate = moment(endDate).format("YYYYMMDD hh:mm:ss");
-        const response = await handleRequest(
-          "getoutinvoices",
-          {
+        const response = await handleRequest({
+          option_request_param: "getoutinvoices",
+          option_request_value: {
             purse: process.env.PURSE,
+            wminvid,
+            orderid,
             datestart: startDate,
             datefinish: endDate,
           },
-          process.env.X_4,
-          "outinvoice"
-        );
+          url: process.env.X_4,
+          wmid,
+          option_response: "outinvoice",
+        });
 
         // RETURN ARRAY CONTAINING OPERATION
         return response;
@@ -220,9 +254,15 @@ const wm_route = () => {
         "Receiving the history of issued invoices. Verifying whether invoices were paid.",
       validate: {
         payload: Joi.object({
+          wmid: Joi.string().required(),
+          wminvid: Joi.number(),
+          orderid: Joi.number().positive().max(999999999999998),
           startDate: Joi.date().required(),
           endDate: Joi.date().required(),
         }),
+        failAction: (req, h, err) => {
+          return h.response(err.message).code(400).takeover();
+        },
       },
     }
   );
@@ -232,20 +272,30 @@ const wm_route = () => {
     "post",
     `${wmPath}/x9`,
     async (req, h) => {
-      const response = await handleRequest(
-        "getpurses",
-        {
+      const { wmid } = req.payload;
+      const response = await handleRequest({
+        option_request_param: "getpurses",
+        option_request_value: {
           wmid: process.env.WMID,
         },
-        process.env.X_9,
-        "purse",
-        process.env.WMID
-      );
+        url: process.env.X_9,
+        option_response: "purse",
+        wmid,
+        sign_content: wmid,
+      });
       return response;
     },
     {
       description: "X9.Retrieving information about purse balance",
       notes: "Retrieving information about purse balance",
+      validate: {
+        payload: Joi.object({
+          wmid: Joi.string().required(),
+        }),
+        failAction: (req, h, err) => {
+          return h.response(err.message).code(400).takeover();
+        },
+      },
     }
   );
 };
